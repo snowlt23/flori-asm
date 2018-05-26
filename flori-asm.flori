@@ -1,0 +1,140 @@
+
+import "core"
+
+enum Reg32 {
+  EAX = 0
+  ECX
+  EDX
+}
+
+enum Mod {
+  MOD_REG_REG = 0
+  MOD_REG_DISP8
+  MOD_REG_DISP32
+  MOD_REG
+}
+
+type AsmBuffer {
+  data Vec[UInt8]
+}
+
+fn new_asm_buffer() AsmBuffer {
+  init(AsmBuffer) {
+    vec[UInt8]()
+  }
+}
+
+fn print(buf AsmBuffer) {
+  print("AsmBuffer[")
+  print(buf.data!0)
+  for (i : range(1, length(buf.data)-1)) {
+    print(" ")
+    print(buf.data!i)
+  }
+  print("]")
+}
+
+fn modrm(mod Mod, reg Reg32, rm Reg32) UInt8 {
+  cast[UInt8]((int(mod) << 6) + (int(reg) << 3) + int(rm))
+}
+
+fn asmb(buf ref AsmBuffer, x UInt8) {
+  push(buf.data, x)
+}
+fn asmd(buf ref AsmBuffer, x Int32) {
+  l1 := and(x, 255)
+  l2 := and(x >> 8, 255)
+  l3 := and(x >> 16, 255)
+  l4 := and(x >> 24, 255)
+  asmb(buf, cast[UInt8](l1))
+  asmb(buf, cast[UInt8](l2))
+  asmb(buf, cast[UInt8](l3))
+  asmb(buf, cast[UInt8](l4))
+}
+
+fn op_imm(buf ref AsmBuffer, op UInt8, i Int32) {
+  asmb(buf, op)
+  asmd(buf, i)
+}
+
+fn op_reg_imm(buf ref AsmBuffer, op UInt8, r Reg32, i Int32) {
+  asmb(buf, cast[UInt8](int(op) + int(r)))
+  asmd(buf, i)
+}
+
+fn op_reg_imm_mod(buf ref AsmBuffer, op UInt8, mod Int, r Reg32, i Int32) {
+  asmb(buf, op)
+  asmb(buf, modrm(MOD_REG, r, cast[Reg32](mod)))
+  asmd(buf, i)
+}
+
+fn op_reg_reg(buf ref AsmBuffer, op UInt8, r1 Reg32, r2 Reg32) {
+  asmb(buf, op)
+  asmb(buf, modrm(MOD_REG, r1, r2))
+}
+
+fn op_reg(buf ref AsmBuffer, op UInt8, r Reg32) {
+  asmb(buf, cast[UInt8](int(op) + int(r)))
+}
+
+#
+# OP
+#
+
+fn mov(buf ref AsmBuffer, r Reg32, i Int32) {
+  op_reg_imm(buf, 184, r, i)
+}
+fn mov(buf ref AsmBuffer, r1 Reg32, r2 Reg32) {
+  op_reg_reg(buf, 184, r1, r2)
+}
+fn add(buf ref AsmBuffer, r Reg32, i Int32) {
+  op_reg_imm_mod(buf, 131, 0, r, i)
+}
+fn add(buf ref AsmBuffer, r1 Reg32, r2 Reg32) {
+  op_reg_reg(buf, 1, r1, r2)
+}
+fn push(buf ref AsmBuffer, r Reg32) {
+  op_reg(buf, 80, r)
+}
+
+macro asm(body FExpr) FExpr $[syntax] {
+  tmpbuf := gensym()
+  ret := quote {
+    `tmpbuf := new_asm_buffer()
+  }
+  for (i : range(0, length(body)-1)) {
+    if (length(body!i) == 0) {
+      error(body!i, "asm syntax expected operation, example: mov EAX ECX")
+    }
+    
+    first := body!i!0
+    args := new_flist()
+    push(args, tmpbuf)
+    for (x : range(1, length(body!i)-1)) {
+      push(args, body!i!x)
+    }
+    
+    push(ret, quote {
+        `first `args
+      })
+  }
+  push(ret, tmpbuf)
+  ret
+}
+
+#
+# main
+#
+
+default_region_settings()
+
+fn main() {
+  buf := asm {
+    mov EAX ECX
+    mov EAX 1
+    add ECX 1
+    push ECX
+  }
+  println(buf)
+}
+main()
